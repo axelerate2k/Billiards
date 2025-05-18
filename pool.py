@@ -295,11 +295,19 @@ while run:
     if lives <= 0:
         draw_text("Game Over", large_font, WHITE, SCREEN_WIDTH / 2 - 160, BOTTOM_PANEL + SCREEN_HEIGHT / 2 - 100)
         game_running = False
+        
+        # Create retry button
+        retry_button = pygame.Rect(SCREEN_WIDTH // 2 - 100, BOTTOM_PANEL + SCREEN_HEIGHT // 2, 200, 50)
+        pygame.draw.rect(screen, GREEN, retry_button)
+        draw_text("Retry", font, WHITE, SCREEN_WIDTH // 2 - 40, BOTTOM_PANEL + SCREEN_HEIGHT // 2 + 10)
+        
+        # Remove the retry button handling from here - it will be handled in the event loop
 
     if len(balls) == 1:
         draw_text("You Win!", large_font, WHITE, SCREEN_WIDTH / 2 - 160, BOTTOM_PANEL + SCREEN_HEIGHT / 2 - 100)
         game_running = False
 
+    # Event handling loop
     for event in pygame.event.get():
         if event.type == pygame.MOUSEBUTTONDOWN and taking_shot == True:
             powering_up = True
@@ -307,8 +315,62 @@ while run:
             powering_up = False
         if event.type == pygame.QUIT:
             run = False
+            
+        # Handle retry button click - moved to the proper event loop
+        if event.type == pygame.MOUSEBUTTONDOWN and not game_running and lives <= 0:
+            mouse_pos = pygame.mouse.get_pos()
+            retry_button = pygame.Rect(SCREEN_WIDTH // 2 - 100, BOTTOM_PANEL + SCREEN_HEIGHT // 2, 200, 50)
+            if retry_button.collidepoint(mouse_pos):
+                # Reset game
+                lives = 3
+                force = 0
+                force_direction = 1
+                game_running = True                                 
+                cue_ball_potted = False
+                taking_shot = True
+                powering_up = False
+                potted_balls = []
+                
+                # Properly clean up physics objects
+                for ball in balls:
+                    try:
+                        space.remove(ball.body)
+                        space.remove(ball)
+                    except:
+                        pass
+                
+                # Recreate physics space to ensure clean state
+                space = pymunk.Space()
+                static_body = space.static_body
+                draw_options = pymunk.pygame_util.DrawOptions(screen)
+                
+                balls = []
+                ball_images = []
+                for i in range(1, 17):
+                    ball_image = pygame.image.load(os.path.join(base_path, f"ball_{i}.png")).convert_alpha()
+                    ball_images.append(ball_image)
+                    
+                # Recreate cushions
+                for c in cushions:
+                    create_cushion(c)
+                    
+                # Recreate the table setup
+                rows = 5
+                for col in range(5):
+                    for row in range(rows):
+                        pos = (250 + (col * (dia + 1)), BOTTOM_PANEL + 267 + (row * (dia + 1)) + (col * dia / 2))
+                        new_ball = create_ball(dia / 2, pos)
+                        balls.append(new_ball)
+                    rows -= 1
+                
+                # Recreate cue ball
+                pos = (888, BOTTOM_PANEL + SCREEN_HEIGHT / 2)
+                cue_ball = create_ball(dia / 2, pos)
+                balls.append(cue_ball)
+                
+                # Update cue with new cue ball position
+                cue = Cue(balls[-1].body.position)
 
-    
     pygame.display.update()
 
 pygame.quit()
