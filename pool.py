@@ -109,6 +109,39 @@ def create_ball(radius, pos):
     space.add(body, shape, pivot)
     return shape
 
+def reset_game():
+    global lives, balls, ball_images, potted_balls, game_running, cue_ball_potted, taking_shot, force, force_direction
+    lives = 3
+    potted_balls = []
+    game_running = True
+    cue_ball_potted = False
+    taking_shot = True
+    force = 0
+    force_direction = 1
+
+    # Remove all balls from space
+    for ball in balls:
+        space.remove(ball.body)
+    balls.clear()
+    ball_images.clear()
+
+    # Recreate balls and images
+    rows = 5
+    for col in range(5):
+        for row in range(rows):
+            pos = (250 + (col * (dia + 1)), BOTTOM_PANEL + 267 + (row * (dia + 1)) + (col * dia / 2))
+            new_ball = create_ball(dia / 2, pos)
+            balls.append(new_ball)
+        rows -= 1
+    pos = (888, BOTTOM_PANEL + SCREEN_HEIGHT / 2)
+    cue_ball = create_ball(dia / 2, pos)
+    balls.append(cue_ball)
+
+    # Reload ball images
+    for i in range(1, 17):
+        ball_image = pygame.image.load(os.path.join(base_path, f"ball_{i}.png")).convert_alpha()
+        ball_images.append(ball_image)
+
 #setup game balls
 balls = []
 rows = 5
@@ -194,6 +227,8 @@ def get_power_color(force_level):
     else:
         return RED
 
+retry_button_rect = pygame.Rect(SCREEN_WIDTH // 2 - 80, BOTTOM_PANEL + SCREEN_HEIGHT // 2, 160, 50)
+
 #game loop
 run = True
 while run:
@@ -260,11 +295,64 @@ while run:
         
         retract_distance = 0
         if powering_up:
-
             retract_distance = min(force / max_force * 50, 50)
             
         cue.update(cue_angle, retract_distance)
         cue.draw(screen)
+
+        # --- BEGIN: Collision reference indicator ---
+        cue_ball_pos = balls[-1].body.position
+        cue_ball_radius = balls[-1].radius
+        direction = pygame.math.Vector2(mouse_pos[0] - cue_ball_pos[0], mouse_pos[1] - cue_ball_pos[1]).normalize()
+        min_dist = float('inf')
+        collision_point = None
+        target_ball = None
+
+        # Find the first ball that would be hit
+        for i, ball in enumerate(balls[:-1]):  # Exclude cue ball itself
+            ball_pos = pygame.math.Vector2(ball.body.position)
+            to_ball = ball_pos - pygame.math.Vector2(cue_ball_pos)
+            proj_length = to_ball.dot(direction)
+            if proj_length <= 0:
+                continue  # Ball is behind cue ball
+            closest_point = pygame.math.Vector2(cue_ball_pos) + direction * proj_length
+            dist_to_ball = (ball_pos - closest_point).length()
+            if dist_to_ball <= cue_ball_radius + ball.radius:
+                # Calculate exact collision point
+                offset = direction * (proj_length - (cue_ball_radius + ball.radius))
+                point = pygame.math.Vector2(cue_ball_pos) + offset
+                if offset.length() < min_dist:
+                    min_dist = offset.length()
+                    collision_point = point
+                    target_ball = ball
+
+        # Draw aiming line to collision point or max length
+        line_length = 600
+        if collision_point is not None:
+            pygame.draw.line(screen, YELLOW, cue_ball_pos, collision_point, 2)
+            # Draw a circle at the collision point
+            pygame.draw.circle(screen, RED, (int(collision_point.x), int(collision_point.y)), 6, 2)
+
+            # Calculate and draw cue ball's path after collision (tangent)
+            cue_to_target = pygame.math.Vector2(target_ball.body.position) - collision_point
+            cue_to_target = cue_to_target.normalize()
+            # The cue ball's path after collision is perpendicular to the collision normal
+            tangent = pygame.math.Vector2(-cue_to_target.y, cue_to_target.x)
+            # Choose tangent direction closest to original shot direction
+            if tangent.dot(direction) < 0:
+                tangent = -tangent
+            cue_after_end = collision_point + tangent * 150
+            pygame.draw.line(screen, GREEN, collision_point, cue_after_end, 2)
+
+            # Draw target ball's path (from collision point in direction from collision to target center)
+            target_dir = (pygame.math.Vector2(target_ball.body.position) - collision_point).normalize()
+            target_end = pygame.math.Vector2(target_ball.body.position) + target_dir * 150
+            pygame.draw.line(screen, WHITE, target_ball.body.position, target_end, 2)
+        else:
+            # No collision, draw normal aiming line
+            end_pos = (cue_ball_pos[0] + direction.x * line_length, cue_ball_pos[1] + direction.y * line_length)
+            pygame.draw.line(screen, YELLOW, cue_ball_pos, end_pos, 2)
+        # --- END: Collision reference indicator ---
 
     #power up pool cue
     if powering_up == True and game_running == True:
@@ -294,6 +382,8 @@ while run:
     #check for game over
     if lives <= 0:
         draw_text("Game Over", large_font, WHITE, SCREEN_WIDTH / 2 - 160, BOTTOM_PANEL + SCREEN_HEIGHT / 2 - 100)
+        pygame.draw.rect(screen, YELLOW, retry_button_rect)
+        draw_text("Retry", font, BG, retry_button_rect.x + 40, retry_button_rect.y + 10)
         game_running = False
 
     if len(balls) == 1:
@@ -301,14 +391,17 @@ while run:
         game_running = False
 
     for event in pygame.event.get():
-        if event.type == pygame.MOUSEBUTTONDOWN and taking_shot == True:
-            powering_up = True
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if not game_running and lives <= 0:
+                if retry_button_rect.collidepoint(event.pos):
+                    reset_game()
+            elif taking_shot == True:
+                powering_up = True
         if event.type == pygame.MOUSEBUTTONUP and taking_shot == True:
             powering_up = False
         if event.type == pygame.QUIT:
             run = False
 
-    
     pygame.display.update()
 
 pygame.quit()
